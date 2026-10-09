@@ -1,0 +1,211 @@
+zabbix_export:
+  version: '7.4'
+  template_groups:
+    - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6e701
+      name: print
+  templates:
+    - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6e702
+      template: 'Template Pantum Printer'
+      name: 'Template Pantum Printer'
+      description: |
+        Объединенный шаблон для принтеров Pantum (7100, 6500 и др.).
+        Тонер собирается через SNMP discovery (обход 1.3.6.1.2.1.43.11.1.1.9) —
+        индексы картриджей у разных моделей разные, discovery находит сам.
+        Драм: Pantum-специфичный OID 1.3.6.1.4.1.40093.10.1.5.3.1.2. На моделях без
+        драма айтем уйдет в unsupported — отключите его на хосте (или оставьте).
+        Счетчик страниц: Pantum не отдает стандартный prtMarkerLifeCount. Суммарный счетчик —
+        вендорный OID 1.3.6.1.4.1.40093.1.1.3.12 (pantum.pages). Серийник/модель/прошивка —
+        40093.1.1.1.5 / .10 / .1. Модели с другим vendor-tree (например 6500, enterprise 26696)
+        эти OID не отдадут — такие айтемы отключите на хосте (как драм на 6500).
+      groups:
+        - name: print
+      macros:
+        - macro: '{$PANTUM.TONER.MIN.WARN}'
+          value: '12'
+          description: 'Уровень тонера %, ниже которого WARNING «заканчивается».'
+        - macro: '{$PANTUM.TONER.RECOVER}'
+          value: '20'
+          description: 'Уровень тонера %, выше которого проблема «тонер заканчивается» закрывается (гистерезис, чтобы не дребезжало на границе).'
+        - macro: '{$PANTUM.DRUM.MIN.WARN}'
+          value: '12'
+          description: 'Уровень драма %, ниже которого WARNING.'
+        - macro: '{$PANTUM.SNMP.NODATA}'
+          value: 30m
+          description: 'Нет SNMP-данных столько времени = принтер не отвечает (HIGH).'
+      items:
+        - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6e712
+          name: 'Total pages printed'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.40093.1.1.3.12'
+          key: pantum.pages
+          delay: 1h
+          history: 30d
+          trends: 365d
+          units: стр
+          description: 'Суммарный счётчик отпечатанных страниц. Pantum не отдаёт стандартный prtMarkerLifeCount (43.10.2.1.4); этот OID из вендорского дерева 40093, значение дублируется в 40093.10.3.1.1. Соседние счётчики того же блока: 40093.1.1.3.3 (чуть меньше — вероятно страницы без копий), 40093.1.1.3.11 (вероятно копии/сканы). Проверено на дампе M7100DW: 64397. На моделях с другим vendor-tree (6500, enterprise 26696) OID не ответит — отключите айтем на хосте.'
+          tags:
+            - tag: component
+              value: pages
+        - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6e713
+          name: 'Serial number'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.40093.1.1.1.5'
+          key: pantum.serial
+          delay: 1d
+          history: 30d
+          trends: '0'
+          value_type: TEXT
+          description: 'Заводской серийный номер (Pantum 40093.1.1.1.5).'
+          tags:
+            - tag: component
+              value: inventory
+        - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6e714
+          name: 'Model'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.40093.1.1.1.10'
+          key: pantum.model
+          delay: 1d
+          history: 30d
+          trends: '0'
+          value_type: TEXT
+          description: 'Модель принтера (Pantum 40093.1.1.1.10).'
+          tags:
+            - tag: component
+              value: inventory
+        - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6e715
+          name: 'Firmware version'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.40093.1.1.1.1'
+          key: pantum.firmware
+          delay: 1d
+          history: 30d
+          trends: '0'
+          value_type: TEXT
+          description: 'Версия прошивки (Pantum 40093.1.1.1.1).'
+          tags:
+            - tag: component
+              value: inventory
+        - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6e703
+          name: 'Printer SNMP availability (sysUpTime)'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.2.1.1.3.0'
+          key: pantum.uptime
+          delay: 5m
+          history: 7d
+          trends: 90d
+          units: s
+          description: 'Время непрерывной работы принтера (sysUpTime). Наличие значения = принтер отвечает по SNMP. Community задается в SNMP-интерфейсе хоста.'
+          tags:
+            - tag: component
+              value: availability
+          triggers:
+            - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6e704
+              expression: 'nodata(/Template Pantum Printer/pantum.uptime,{$PANTUM.SNMP.NODATA})=1'
+              name: 'Принтер {HOST.NAME} не отвечает по SNMP'
+              priority: HIGH
+              description: 'Нет SNMP-ответа {$PANTUM.SNMP.NODATA}: принтер выключен, недоступен по сети или SNMP отключен. Именно этот триггер отличает «закончился тонер» от «принтер пропал».'
+        - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6e706
+          name: 'Drum level'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.40093.10.1.5.3.1.2'
+          key: pantum.drum
+          delay: 1h
+          history: 60d
+          trends: '0'
+          units: '%'
+          description: 'Остаток драм-картриджа, % (Pantum-специфичный OID). На моделях без драма (например 6500) OID не отвечает — айтем будет unsupported: отключите его на таком хосте (Items хоста), чтобы не было красного значка.'
+          tags:
+            - tag: component
+              value: drum
+          triggers:
+            - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6e707
+              expression: 'last(/Template Pantum Printer/pantum.drum)<{$PANTUM.DRUM.MIN.WARN}'
+              name: 'Драм-картридж {HOST.NAME} заканчивается: {ITEM.VALUE}%'
+              priority: WARNING
+              description: 'Остаток драма ниже {$PANTUM.DRUM.MIN.WARN}%. Закажите драм, иначе через некоторое время печать деградирует/остановится.'
+            - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6e711
+              expression: 'change(/Template Pantum Printer/pantum.drum)>70'
+              name: 'Драм заменен ({HOST.NAME})'
+              opdata: 'Остаток драма: {ITEM.VALUE2} ==> {ITEM.VALUE1}'
+              priority: INFO
+              description: 'Уровень драма скачком вырос больше чем на 70% — драм-картридж заменили. INFO-запись; одновременно action шлет дату замены в pantum.drum.replaced (см. README).'
+        - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6f70d
+          name: 'Toner replacement date (set by action)'
+          type: TRAP
+          key: pantum.toner.replaced
+          history: 365d
+          description: 'Unixtime последней замены тонер-картриджа. Заполняется НЕ агентом, а action в Zabbix (Alerting → Actions → Trigger actions): при срабатывании триггера «Новый картридж» на Zabbix-сервере выполняется zabbix_sender с текущей датой. Инструкция в README.'
+          tags:
+            - tag: component
+              value: toner
+        - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6f70e
+          name: 'Drum replacement date (set by action)'
+          type: TRAP
+          key: pantum.drum.replaced
+          history: 365d
+          description: 'Unixtime последней замены драм-картриджа. Заполняется action-ом при триггере «Драм заменен» (см. README).'
+          tags:
+            - tag: component
+              value: drum
+        - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6f70f
+          name: 'Days since toner cartridge replacement'
+          type: CALCULATED
+          params: '(now()-last(/Template Pantum Printer/pantum.toner.replaced))/86400'
+          key: pantum.toner.days
+          delay: 1h
+          history: 30d
+          trends: 90d
+          units: дн
+          description: 'Дней с последней замены тонер-картриджа. Считается от pantum.toner.replaced (дата ставится action-ом). До первой замены айтем unsupported — это норма.'
+          tags:
+            - tag: component
+              value: toner
+        - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6f710
+          name: 'Days since drum replacement'
+          type: CALCULATED
+          params: '(now()-last(/Template Pantum Printer/pantum.drum.replaced))/86400'
+          key: pantum.drum.days
+          delay: 1h
+          history: 30d
+          trends: 90d
+          units: дн
+          description: 'Дней с последней замены драм-картриджа. До первой замены unsupported — норма.'
+          tags:
+            - tag: component
+              value: drum
+      discovery_rules:
+        - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6e708
+          name: 'Toner cartridges discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#TONER.LEVEL},1.3.6.1.2.1.43.11.1.1.9]'
+          key: pantum.toner.discovery
+          delay: 1h
+          description: 'Обход 1.3.6.1.2.1.43.11.1.1.9 (уровни картриджей, стандартный Printer-MIB). У каждой модели/картриджа свой индекс — discovery создает айтем на каждый найденный. Если принтер не отвечает, discovery молча не создает ничего (см. pantum.uptime).'
+          item_prototypes:
+            - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6e709
+              name: 'Toner level (cartridge {#SNMPINDEX})'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.43.11.1.1.9.{#SNMPINDEX}'
+              key: 'pantum.toner[{#SNMPINDEX}]'
+              delay: 1h
+              history: 30d
+              trends: '0'
+              units: '%'
+              description: 'Уровень тонера картриджа с индексом {#SNMPINDEX}, %.'
+              tags:
+                - tag: component
+                  value: toner
+              trigger_prototypes:
+                - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6e70a
+                  expression: 'last(/Template Pantum Printer/pantum.toner[{#SNMPINDEX}])<{$PANTUM.TONER.MIN.WARN}'
+                  recovery_mode: RECOVERY_EXPRESSION
+                  recovery_expression: 'last(/Template Pantum Printer/pantum.toner[{#SNMPINDEX}])>{$PANTUM.TONER.RECOVER}'
+                  name: 'Тонер заканчивается (картридж {#SNMPINDEX}): {ITEM.VALUE}%'
+                  priority: WARNING
+                  description: 'Уровень тонера ниже {$PANTUM.TONER.MIN.WARN}%. Закрывается при подъеме выше {$PANTUM.TONER.RECOVER}% (гистерезис против дребезга на границе порога).'
+                - uuid: f5a6b7c8d9e04bb0a1b2a3b4c5d6e70b
+                  expression: 'change(/Template Pantum Printer/pantum.toner[{#SNMPINDEX}])>70'
+                  name: 'Новый картридж (картридж {#SNMPINDEX})'
+                  opdata: 'Остаток тонера: {ITEM.VALUE2} ==> {ITEM.VALUE1}'
+                  priority: INFO
+                  description: 'Уровень тонера скачком вырос больше чем на 70% — картридж заменили. INFO-запись для истории расходников.'
